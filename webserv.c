@@ -30,6 +30,7 @@ struct sockaddr_in addr; //server socket address structure
 socklen_t addrlen; //address structure size
 
 void exithandler();
+void send_html(int client_sockfd, int req_fd, char *filename);
 
 int main(int argc, char **argv){
     //check arguments
@@ -37,9 +38,14 @@ int main(int argc, char **argv){
         printf("Must specify port number as argument!\n");
         exit(0);
     }
-
-    //init variables and create socket http://linux.die.net/man/7/socket
+    //cast port number to integer and check if valid
     port_no = atoi(argv[1]); //get port# from argv
+    if (port_no < 5000 || port_no > 65536) {
+    	printf("Invalid port number, must be integer between 5000 and 65536\n");
+    	exit(0);
+    }
+
+    //create server socket http://linux.die.net/man/7/socket
     serv_sock_size = sizeof(addr);
     req_buf_size = 1024; //allocate request message buffer
     req_buf = malloc(req_buf_size);
@@ -80,34 +86,38 @@ int main(int argc, char **argv){
         int req_fd = open(filename, O_RDONLY); //file descriptor for requested page
         if (req_fd < 0) printf("Unable to fetch file: %s\n", filename);
         else {
-            //get filesize
-            struct stat filelen;
-            fstat(req_fd, &filelen);
-
-            //tell browser to render html using write http://linux.die.net/man/2/write
-            write(client_sockfd, "HTTP/1.1 200 OK\n", 16);
-
-            //content length string (this might not even be necessary?)
-            char filesizestr[32];
-            sprintf(filesizestr, "%d", (int) filelen.st_size);
-
-            write(client_sockfd, "Content-length: ", 16);
-            write(client_sockfd, filesizestr, strlen(filesizestr));
-            write(client_sockfd, "\n", 1);
-
-            write(client_sockfd, "Content-Type: text/html\n\n", 25);
-
-            //attempt to send file to client socket
-            if (sendfile(client_sockfd, req_fd, 0, filelen.st_size) < 0) {
-                printf("Server file send error\nclientfd: %d\tfilename: %s\tfilefd: %d\tfilesize: %d\n", client_sockfd, filename, req_fd, (int) filelen.st_size);
-                perror("sendfile");
-            }  
+        	send_html(client_sockfd, req_fd, filename);
         }
         close(req_fd); //close file
         close(client_sockfd); //close client connection
     }
     exithandler();
     return 0;
+}
+
+void send_html(int client_sockfd, int req_fd, char *filename){
+    //get filesize
+    struct stat filelen;
+    fstat(req_fd, &filelen);
+
+    //tell browser to render html using write http://linux.die.net/man/2/write
+    write(client_sockfd, "HTTP/1.1 200 OK\n", 16);
+
+    //content length string (this might not even be necessary?)
+    char filesizestr[32];
+    sprintf(filesizestr, "%d", (int) filelen.st_size);
+
+    write(client_sockfd, "Content-length: ", 16);
+    write(client_sockfd, filesizestr, strlen(filesizestr));
+    write(client_sockfd, "\n", 1);
+
+    write(client_sockfd, "Content-Type: text/html\n\n", 25);
+
+    //attempt to send file to client socket
+    if (sendfile(client_sockfd, req_fd, 0, filelen.st_size) < 0) {
+        printf("Server file send error\nclientfd: %d\tfilename: %s\tfilefd: %d\tfilesize: %d\n", client_sockfd, filename, req_fd, (int) filelen.st_size);
+        perror("sendfile");
+    }  
 }
 
 void exithandler(){
