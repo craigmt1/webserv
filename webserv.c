@@ -89,7 +89,7 @@ int main(int argc, char **argv){
 
             //content length string (this might not even be necessary?)
             char filesizestr[32];
-            sprintf(filesizestr, "%d", filelen.st_size);
+            sprintf(filesizestr, "%d", (int) filelen.st_size);
 
             write(client_sockfd, "Content-length: ", 16);
             write(client_sockfd, filesizestr, strlen(filesizestr));
@@ -99,7 +99,7 @@ int main(int argc, char **argv){
 
             //attempt to send file to client socket
             if (sendfile(client_sockfd, req_fd, 0, filelen.st_size) < 0) {
-                printf("Server file send error\nclientfd: %d\tfilename: %s\tfilefd: %d\tfilesize: %d\n", client_sockfd, filename, req_fd, filelen.st_size);
+                printf("Server file send error\nclientfd: %d\tfilename: %s\tfilefd: %d\tfilesize: %d\n", client_sockfd, filename, req_fd, (int) filelen.st_size);
                 perror("sendfile");
             }  
         }
