@@ -81,14 +81,33 @@ int main(int argc, char **argv){
         recv(client_sockfd, req_buf, req_buf_size, 0); //not really sure what to do with flag arg
         printf("Request from client socket %d\n%s\n", client_sockfd, req_buf); //output request message to console
         
-        //open file to send to client http://linux.die.net/man/2/open
-        char *filename = "./index.html";
-        int req_fd = open(filename, O_RDONLY); //file descriptor for requested page
-        if (req_fd < 0) printf("Unable to fetch file: %s\n", filename);
-        else {
-        	send_html(client_sockfd, req_fd, filename);
+
+        //tokenize request buffer (first token is request type)
+        char * req_tokens;
+        req_tokens = strtok(req_buf, " ");
+        //printf("REQUEST TYPE: %s\n", req_tokens);
+        int isGet = strcmp(req_tokens, "GET") == 0;
+        
+        //next token (requested page) copy to another string
+        req_tokens = strtok(NULL, " ");
+        char *requestedPage = malloc(strlen(req_tokens) + 1);
+        strcpy(requestedPage + 1, req_tokens);
+        requestedPage[0] = '.';
+        printf("PAGE REQUESTED: %s\n", requestedPage);
+
+		if (isGet) {
+	        //open file to send to client http://linux.die.net/man/2/open
+	        int req_fd;
+	        if (strcmp(requestedPage, "./") == 0) req_fd = open("./index.html", O_RDONLY);
+	        else req_fd = open(requestedPage, O_RDONLY); //file descriptor for requested page
+
+	        if (req_fd < 0) printf("Unable to fetch file: %s\n", requestedPage);
+	        else {
+	        	send_html(client_sockfd, req_fd, requestedPage);
+	        }
+	        close(req_fd); //close file
         }
-        close(req_fd); //close file
+
         close(client_sockfd); //close client connection
     }
     exithandler();
