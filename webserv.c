@@ -16,6 +16,7 @@
 //http://blog.manula.org/2011/05/writing-simple-web-server-in-c.html
 //http://shoe.bocks.com/net/
 //http://www.tldp.org/LDP/LGNET/91/misc/tranter/server.c.txt
+//http://stackoverflow.com/questions/10072989/simple-http-server-in-c-multiple-process-not-work-properly
 
 int port_no; //port number for webserv
 
@@ -63,9 +64,8 @@ int main(int argc, char **argv){
     signal(SIGQUIT, exithandler);
     printf("Successfully bound socket %d to port %d.  Press (Ctrl-C) to exit.\nListening...\n", serv_sockfd, port_no);
 
-    //here we go!
-    int alive = 1;
-    while(alive) {
+    //begin listen loop
+    while(1) {
         //listen for incoming connections to serv_sockfd http://linux.die.net/man/2/listen
         if (listen(serv_sockfd, 10) < 0) {
             perror("Server Listen Failure");
