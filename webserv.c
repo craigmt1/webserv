@@ -8,6 +8,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <fcntl.h>
+#include <dirent.h>
 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -28,6 +29,7 @@ socklen_t addrlen; //address structure size
 
 void exithandler();
 void client_request(int client_sockfd);
+void write_dirList(int client_sockfd, int req_fd, char *requestedPage);
 
 int main(int argc, char **argv){
     //check arguments
@@ -97,7 +99,7 @@ void client_request(int client_sockfd){
 
     //load messages from client_sockfd into request buffer http://linux.die.net/man/2/recv
     recv(client_sockfd, req_buf, req_buf_size, 0); //not really sure what to do with flag arg
-    printf("Request from client socket %d\n%s\n", client_sockfd, req_buf); //output request message to console
+    printf("Request from client socket %d\n%s", client_sockfd, req_buf); //output request message to console
     
     //tokenize request buffer (first token is request type)
     char * req_tokens;
@@ -135,14 +137,11 @@ void client_request(int client_sockfd){
     //check if file or directory
     struct stat sb;
     fstat(req_fd, &sb);
-    printf("STAT TYPE: %d\n", sb.st_mode);
-    printf("IS FILE?: %d\n", S_ISREG(sb.st_mode));
-    printf("IS DIR?: %d\n", S_ISDIR(sb.st_mode));
+    printf("STAT TYPE: %d\tFILE?: %d\tDIR?: %d\n", sb.st_mode, S_ISREG(sb.st_mode), S_ISDIR(sb.st_mode));
 
     //for directory, generate directory listing
     if (S_ISDIR(sb.st_mode) && !isIndex) {
-        //code here....
-	printf("DIRECTORY LISTING FOR:%s\n", requestedPage);
+	write_dirList(client_sockfd, req_fd, requestedPage);
         close(req_fd); //close file
         return;
     }
@@ -173,6 +172,20 @@ void client_request(int client_sockfd){
 
     close(req_fd); //close file
     return;
+}
+
+//generate a directory listing for when a user navigates to directory
+//requires client socket id, requested directory file id, and specified path
+void write_dirList(int client_sockfd, int req_fd, char *requestedPage){
+	//DIR *d;
+	//struct dirent *dir;
+	printf("GENERATING DIRECTORY LISTING FOR:%s\n", requestedPage);
+
+	write(client_sockfd, "Content-Type: text/html\n\n", 25);
+	write(client_sockfd, "<html><head><title>Index of ", 28);
+	write(client_sockfd, "</title></head><body><h1>Index of ", 34);
+	write(client_sockfd, "</h1><address>Custom CS410 Webserver</address></body></html>", 60);
+	return;
 }
 
 void exithandler(){
