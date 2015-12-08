@@ -177,13 +177,38 @@ void client_request(int client_sockfd){
 //generate a directory listing for when a user navigates to directory
 //requires client socket id, requested directory file id, and specified path
 void write_dirList(int client_sockfd, int req_fd, char *requestedPage){
-	//DIR *d;
-	//struct dirent *dir;
+	DIR *d;
+	struct dirent *dir;
 	printf("GENERATING DIRECTORY LISTING FOR:%s\n", requestedPage);
 
 	write(client_sockfd, "Content-Type: text/html\n\n", 25);
 	write(client_sockfd, "<html><head><title>Index of ", 28);
+	write(client_sockfd, requestedPage + 1, strlen(requestedPage + 1));
 	write(client_sockfd, "</title></head><body><h1>Index of ", 34);
+	write(client_sockfd, requestedPage + 1, strlen(requestedPage + 1));
+	write(client_sockfd, "<table><tr><th><img src=\"/icons/blank.gif\" alt=\"[ICO]\"></th><th><a href=\"?C=N;O=D\">Name</a></th><th><a href=\"?C=M;O=A\">Last modified</a></th><th><a href=\"?C=S;O=A\">Size</a></th><th><a href=\"?C=D;O=A\">Description</a></th></tr><tr><th colspan=\"5\"><hr></th></tr>", 259);
+	
+	//render files in directory to table
+	d = opendir(requestedPage);
+	int first = 1;
+	while ((dir = readdir (d)) != NULL) {
+		//skip first entry (".")
+		if (first) {
+			first = 0;
+			continue;
+		}
+		//render listing for parent directory
+		else if (strcmp(dir->d_name, "..") == 0){
+			printf("Parent Directory\n");
+		}
+		//render listing for other files/directories
+		else {
+			printf("File: %s\n", dir->d_name);
+		}
+	}
+	closedir(d);
+
+	write(client_sockfd, "<tr><th colspan=\"5\"><hr></th></tr>", 34);
 	write(client_sockfd, "</h1><address>Custom CS410 Webserver</address></body></html>", 60);
 	return;
 }
