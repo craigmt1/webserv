@@ -72,7 +72,12 @@ int main(int argc, char **argv){
         if ((client_sockfd = accept(serv_sockfd, (struct sockaddr *) &addr, &addrlen)) < 0) perror("Server Accept Failure");
 
         else {
-            if (fork() == 0) client_request(client_sockfd);
+	    //fork each client request
+	    if (fork() == 0){
+		client_request(client_sockfd);
+		close(client_sockfd);
+		exit(0);
+	    }
         }
     }
     exithandler();
@@ -87,6 +92,7 @@ void client_request(int client_sockfd){
     req_buf_size = 1024; //allocate request message buffer
     req_buf = malloc(req_buf_size);
 
+    chdir("./www/"); //change working directory to website directory
     int req_fd; //file descriptor for requested page
 
     //load messages from client_sockfd into request buffer http://linux.die.net/man/2/recv
@@ -133,12 +139,11 @@ void client_request(int client_sockfd){
     printf("IS FILE?: %d\n", S_ISREG(sb.st_mode));
     printf("IS DIR?: %d\n", S_ISDIR(sb.st_mode));
 
-    //for directory, gen directory listing
+    //for directory, generate directory listing
     if (S_ISDIR(sb.st_mode) && !isIndex) {
         //code here....
+	printf("DIRECTORY LISTING FOR:%s\n", requestedPage);
         close(req_fd); //close file
-        close(client_sockfd); //close client connection
-        exit(0);
         return;
     }
     //otherwise assume file
@@ -167,8 +172,6 @@ void client_request(int client_sockfd){
     }
 
     close(req_fd); //close file
-    close(client_sockfd); //close client connection
-    exit(0);
     return;
 }
 
