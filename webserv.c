@@ -20,18 +20,14 @@
 
 int port_no; //port number for webserv
 
-char *req_buf; //buffer for messages from client socket
-int req_buf_size; //size of buffer
-
 int serv_sockfd; //server socket file descriptor
 size_t serv_sock_size; //size of server socket file descriptor
-int client_sockfd; //client socket file descriptor
 
 struct sockaddr_in addr; //server socket address structure
 socklen_t addrlen; //address structure size
 
 void exithandler();
-void send_html(int client_sockfd, int req_fd, char *filename);
+void client_request(int client_sockfd);
 
 int main(int argc, char **argv){
     //check arguments
@@ -48,8 +44,7 @@ int main(int argc, char **argv){
 
     //create server socket http://linux.die.net/man/7/socket
     serv_sock_size = sizeof(addr);
-    req_buf_size = 1024; //allocate request message buffer
-    req_buf = malloc(req_buf_size);
+
 
     serv_sockfd = socket(AF_INET, SOCK_STREAM, 0);
     addr.sin_port = htons(port_no);
@@ -66,77 +61,115 @@ int main(int argc, char **argv){
 
     //begin listen loop
     while(1) {
+        int client_sockfd; //client socket file descriptor
+        
         //listen for incoming connections to serv_sockfd http://linux.die.net/man/2/listen
         if (listen(serv_sockfd, 10) < 0) {
             perror("Server Listen Failure");
             exit(EXIT_FAILURE);
         }
         //accept incoming connections from client_sockfd http://linux.die.net/man/2/accept
-        if ((client_sockfd = accept(serv_sockfd, (struct sockaddr *) &addr, &addrlen)) < 0) {
-            perror("Server Accept Failure");
-            exit(EXIT_FAILURE);
+        if ((client_sockfd = accept(serv_sockfd, (struct sockaddr *) &addr, &addrlen)) < 0) perror("Server Accept Failure");
+
+        else {
+            if (fork() == 0) client_request(client_sockfd);
         }
-
-        //load messages from client_sockfd into request buffer http://linux.die.net/man/2/recv
-        recv(client_sockfd, req_buf, req_buf_size, 0); //not really sure what to do with flag arg
-        printf("Request from client socket %d\n%s\n", client_sockfd, req_buf); //output request message to console
-        
-
-        //tokenize request buffer (first token is request type)
-        char * req_tokens;
-        req_tokens = strtok(req_buf, " ");
-        //printf("REQUEST TYPE: %s\n", req_tokens);
-        int isGet = strcmp(req_tokens, "GET") == 0;
-        
-        //next token (requested page) copy to another string
-        req_tokens = strtok(NULL, " ");
-        char *requestedPage = malloc(strlen(req_tokens) + 1);
-        strcpy(requestedPage + 1, req_tokens);
-        requestedPage[0] = '.';
-        printf("PAGE REQUESTED: %s\n", requestedPage);
-
-		if (isGet) {
-	        //open file to send to client http://linux.die.net/man/2/open
-	        int req_fd;
-	        if (strcmp(requestedPage, "./") == 0) req_fd = open("./index.html", O_RDONLY);
-	        else req_fd = open(requestedPage, O_RDONLY); //file descriptor for requested page
-
-	        if (req_fd < 0) printf("Unable to fetch file: %s\n", requestedPage);
-	        else {
-	        	send_html(client_sockfd, req_fd, requestedPage);
-	        }
-	        close(req_fd); //close file
-        }
-
-        close(client_sockfd); //close client connection
     }
     exithandler();
     return 0;
 }
 
-void send_html(int client_sockfd, int req_fd, char *filename){
-    //get filesize
-    struct stat filelen;
-    fstat(req_fd, &filelen);
+//handle specific request from client socket
+void client_request(int client_sockfd){
+    //initialize request buffer
+    char *req_buf; //buffer for messages from client socket
+    int req_buf_size; //size of buffer
+    req_buf_size = 1024; //allocate request message buffer
+    req_buf = malloc(req_buf_size);
 
-    //tell browser to render html using write http://linux.die.net/man/2/write
-    write(client_sockfd, "HTTP/1.1 200 OK\n", 16);
+    int req_fd; //file descriptor for requested page
 
-    //content length string (this might not even be necessary?)
-    char filesizestr[32];
-    sprintf(filesizestr, "%d", (int) filelen.st_size);
+    //load messages from client_sockfd into request buffer http://linux.die.net/man/2/recv
+    recv(client_sockfd, req_buf, req_buf_size, 0); //not really sure what to do with flag arg
+    printf("Request from client socket %d\n%s\n", client_sockfd, req_buf); //output request message to console
+    
+    //tokenize request buffer (first token is request type)
+    char * req_tokens;
+    req_tokens = strtok(req_buf, " ");
+    //printf("REQUEST TYPE: %s\n", req_tokens);
+    int isGet = strcmp(req_tokens, "GET") == 0;
+    
+    //next token (requested page) copy to another string
+    req_tokens = strtok(NULL, " ");
+    char *requestedPage = malloc(strlen(req_tokens) + 1);
+    strcpy(requestedPage + 1, req_tokens);
+    requestedPage[0] = '.';
+    printf("PAGE REQUESTED: %s\n", requestedPage);
 
-    write(client_sockfd, "Content-length: ", 16);
-    write(client_sockfd, filesizestr, strlen(filesizestr));
-    write(client_sockfd, "\n", 1);
 
-    write(client_sockfd, "Content-Type: text/html\n\n", 25);
+    //create file descriptor (default: no page specified, return index.html)
+    int isIndex;
+    if (strcmp(requestedPage, "./") == 0) {
+        req_fd = open("./index.html", O_RDONLY);
+        isIndex = 1;
+    }
+    else {
+        req_fd = open(requestedPage, O_RDONLY);
+        isIndex = 0;
+    }
 
-    //attempt to send file to client socket
-    if (sendfile(client_sockfd, req_fd, 0, filelen.st_size) < 0) {
-        printf("Server file send error\nclientfd: %d\tfilename: %s\tfilefd: %d\tfilesize: %d\n", client_sockfd, filename, req_fd, (int) filelen.st_size);
-        perror("sendfile");
-    }  
+    //404 file not found
+    int is404 = 0;
+    if (req_fd < 0) {
+        write(client_sockfd, "HTTP/1.0 404 Not Found\n", 23);
+        req_fd = open("./404.html", O_RDONLY);
+        is404 = 1;
+    } else write(client_sockfd, "HTTP/1.1 200 OK\n", 16);
+
+    //check if file or directory
+    struct stat sb;
+    fstat(req_fd, &sb);
+    printf("STAT TYPE: %d\n", sb.st_mode);
+    printf("IS FILE?: %d\n", S_ISREG(sb.st_mode));
+    printf("IS DIR?: %d\n", S_ISDIR(sb.st_mode));
+
+    //for directory, gen directory listing
+    if (S_ISDIR(sb.st_mode) && !isIndex) {
+        //code here....
+        close(req_fd); //close file
+        close(client_sockfd); //close client connection
+        exit(0);
+        return;
+    }
+    //otherwise assume file
+    else if (isGet) {
+        //write content length string (this may not be necessary?)
+        char filesizestr[32];
+        sprintf(filesizestr, "%d", (int) sb.st_size);
+        write(client_sockfd, "Content-length: ", 16);
+        write(client_sockfd, filesizestr, strlen(filesizestr));
+        write(client_sockfd, "\n", 1);
+
+        //get file extension for page request
+        char *ext;
+        if ((ext = strrchr(requestedPage, '.')) > 0) printf("PAGE EXTENSION: %s\n", ext);
+        //examine extension and write file type
+        if (strcmp(ext, ".html") == 0 || isIndex || is404) write(client_sockfd, "Content-Type: text/html\n\n", 25);
+        else if (strcmp(ext, ".jpg") == 0 || strcmp(ext, ".jpeg") == 0) write(client_sockfd, "Content-Type: image/jpeg\n\n", 26);
+        else if (strcmp(ext, ".gif") == 0) write(client_sockfd, "Content-Type: image/gif\n\n", 25);
+        else write(client_sockfd, "Content-Type: text/plain\n\n", 26);
+
+        //attempt to send file to client socket
+        if (sendfile(client_sockfd, req_fd, 0, sb.st_size) < 0) {
+            printf("Server file send error\nclientfd: %d\tfilename: %s\tfilefd: %d\tfilesize: %d\n", client_sockfd, requestedPage, req_fd, (int) sb.st_size);
+            perror("sendfile");
+        }
+    }
+
+    close(req_fd); //close file
+    close(client_sockfd); //close client connection
+    exit(0);
+    return;
 }
 
 void exithandler(){
@@ -146,6 +179,5 @@ void exithandler(){
         printf(" Failure!\n");
     }
     else printf(" Success!\n");
-    free(req_buf);
     exit(0);
 }
