@@ -29,7 +29,7 @@ socklen_t addrlen; //address structure size
 
 void exithandler();
 void client_request(int client_sockfd);
-void write_dirList(int client_sockfd, int req_fd, char *requestedPage);
+void write_dir_list(int client_sockfd, int req_fd, char *requestedPage);
 
 int main(int argc, char **argv){
     //check arguments
@@ -72,14 +72,13 @@ int main(int argc, char **argv){
         }
         //accept incoming connections from client_sockfd http://linux.die.net/man/2/accept
         if ((client_sockfd = accept(serv_sockfd, (struct sockaddr *) &addr, &addrlen)) < 0) perror("Server Accept Failure");
-
         else {
-	    //fork each client request
-	    if (fork() == 0){
-		client_request(client_sockfd);
-		close(client_sockfd);
-		exit(0);
-	    }
+		    //fork each client request
+		    if (fork() == 0){
+			client_request(client_sockfd);
+			exit(0);
+			close(client_sockfd);
+		    }
         }
     }
     exithandler();
@@ -137,11 +136,11 @@ void client_request(int client_sockfd){
     //check if file or directory
     struct stat sb;
     fstat(req_fd, &sb);
-    printf("STAT TYPE: %d\tFILE?: %d\tDIR?: %d\n", sb.st_mode, S_ISREG(sb.st_mode), S_ISDIR(sb.st_mode));
+    //printf("STAT TYPE: %d\tFILE?: %d\tDIR?: %d\n", sb.st_mode, S_ISREG(sb.st_mode), S_ISDIR(sb.st_mode));
 
     //for directory, generate directory listing
     if (S_ISDIR(sb.st_mode) && !isIndex) {
-	write_dirList(client_sockfd, req_fd, requestedPage);
+	write_dir_list(client_sockfd, req_fd, requestedPage);
         close(req_fd); //close file
         return;
     }
@@ -176,40 +175,51 @@ void client_request(int client_sockfd){
 
 //generate a directory listing for when a user navigates to directory
 //requires client socket id, requested directory file id, and specified path
-void write_dirList(int client_sockfd, int req_fd, char *requestedPage){
+void write_dir_list(int client_sockfd, int req_fd, char *requestedPage){
 	DIR *d;
 	struct dirent *dir;
 	printf("GENERATING DIRECTORY LISTING FOR:%s\n", requestedPage);
 
 	write(client_sockfd, "Content-Type: text/html\n\n", 25);
-	write(client_sockfd, "<html><head><title>Index of ", 28);
+	write(client_sockfd, "<html>\n\t<head>\n\t\t<title>Index of ", 33);
 	write(client_sockfd, requestedPage + 1, strlen(requestedPage + 1));
-	write(client_sockfd, "</title></head><body><h1>Index of ", 34);
+	write(client_sockfd, "</title>\n\t</head>\n\t<body>\n\t\t<h1>Index of ", 41);
 	write(client_sockfd, requestedPage + 1, strlen(requestedPage + 1));
-	write(client_sockfd, "<table><tr><th><img src=\"/icons/blank.gif\" alt=\"[ICO]\"></th><th><a href=\"?C=N;O=D\">Name</a></th><th><a href=\"?C=M;O=A\">Last modified</a></th><th><a href=\"?C=S;O=A\">Size</a></th><th><a href=\"?C=D;O=A\">Description</a></th></tr><tr><th colspan=\"5\"><hr></th></tr>", 259);
-	
+	write(client_sockfd, "</h1>\n\t\t<table>\n\t\t\t<tr><th colspan=\"5\"><hr></th></tr>", 53);
+
+	//write parent directory first
+	printf("Parent Directory\n");
+	write(client_sockfd, "\n\t\t\t<tr><td valign=\"top\"><img src=\"/icons/back.gif\" alt=\"[DIR]\"></td><td><a href=\"", 82);
+	//parent link here
+	write(client_sockfd, requestedPage + 1, strlen(requestedPage + 1));
+	//add extra slash only if its not already in url
+	if (requestedPage[strlen(requestedPage) - 1] != '/') write(client_sockfd, "/", 1);
+	write(client_sockfd, "..", 2);
+	write(client_sockfd, "\">Parent Directory</a></td><td>&nbsp;</td></tr>", 47);
+
 	//render files in directory to table
 	d = opendir(requestedPage);
-	int first = 1;
 	while ((dir = readdir (d)) != NULL) {
-		//skip first entry (".")
-		if (first) {
-			first = 0;
-			continue;
-		}
-		//render listing for parent directory
-		else if (strcmp(dir->d_name, "..") == 0){
-			printf("Parent Directory\n");
-		}
+		//skip cwd and parent
+		if ((strcmp(dir->d_name, ".") == 0) || (strcmp(dir->d_name, "..") == 0)) continue;
+		
 		//render listing for other files/directories
-		else {
-			printf("File: %s\n", dir->d_name);
-		}
-	}
-	closedir(d);
+		printf("File: %s\n", dir->d_name);
+		write(client_sockfd, "\n\t\t\t<tr><td valign=\"top\"><img src=\"/icons/", 42);
 
-	write(client_sockfd, "<tr><th colspan=\"5\"><hr></th></tr>", 34);
-	write(client_sockfd, "</h1><address>Custom CS410 Webserver</address></body></html>", 60);
+		//choose icon for directory or file
+		if (dir->d_type == DT_DIR) write(client_sockfd, "folder.gif\" alt=\"[DIR]", 23);
+		else write(client_sockfd, "text.gif\" alt=\"[TXT]", 21);
+
+		write(client_sockfd, "\"></td><td><a href=\"", 20);
+		write(client_sockfd, dir->d_name, strlen(dir->d_name));
+		write(client_sockfd, "\">", 2);
+		write(client_sockfd, dir->d_name, strlen(dir->d_name));
+		write(client_sockfd, "</a></td><td>&nbsp;</td></tr>", 29);
+	}
+
+	closedir(d);
+	write(client_sockfd, "\n\t\t\t<tr><th colspan=\"5\"><hr></th></tr>\n\t\t</table>\n\t\t<address>Custom CS410 Webserver</address>\n\t</body>\n</html>", 110);
 	return;
 }
 
