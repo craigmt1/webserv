@@ -29,7 +29,8 @@ socklen_t addrlen; //address structure size
 
 void exithandler();
 void client_request(int client_sockfd);
-void write_dir_list(int client_sockfd, int req_fd, char *requestedPage);
+void write_file(int client_sockfd, char *req_path, int filesize);
+void write_dir(int client_sockfd, char *req_path);
 
 int main(int argc, char **argv){
     //check arguments
@@ -46,8 +47,6 @@ int main(int argc, char **argv){
 
     //create server socket http://linux.die.net/man/7/socket
     serv_sock_size = sizeof(addr);
-
-
     serv_sockfd = socket(AF_INET, SOCK_STREAM, 0);
     addr.sin_port = htons(port_no);
 
@@ -60,6 +59,8 @@ int main(int argc, char **argv){
     signal(SIGINT, exithandler);
     signal(SIGQUIT, exithandler);
     printf("Successfully bound socket %d to port %d.  Press (Ctrl-C) to exit.\nListening...\n", serv_sockfd, port_no);
+
+    chdir("./www/"); //change working directory to website directory
 
     //begin listen loop
     while(1) {
@@ -75,9 +76,9 @@ int main(int argc, char **argv){
         else {
 		    //fork each client request
 		    if (fork() == 0){
-			client_request(client_sockfd);
-			exit(0);
-			close(client_sockfd);
+				client_request(client_sockfd);
+				exit(0);
+				close(client_sockfd);
 		    }
         }
     }
@@ -85,16 +86,11 @@ int main(int argc, char **argv){
     return 0;
 }
 
-//handle specific request from client socket
+//handle single request from a given client socket
 void client_request(int client_sockfd){
     //initialize request buffer
-    char *req_buf; //buffer for messages from client socket
-    int req_buf_size; //size of buffer
-    req_buf_size = 1024; //allocate request message buffer
-    req_buf = malloc(req_buf_size);
-
-    chdir("./www/"); //change working directory to website directory
-    int req_fd; //file descriptor for requested page
+    int req_buf_size = 1024;
+	char req_buf[req_buf_size];
 
     //load messages from client_sockfd into request buffer http://linux.die.net/man/2/recv
     recv(client_sockfd, req_buf, req_buf_size, 0); //not really sure what to do with flag arg
@@ -103,25 +99,54 @@ void client_request(int client_sockfd){
     //tokenize request buffer (first token is request type)
     char * req_tokens;
     req_tokens = strtok(req_buf, " ");
-    //printf("REQUEST TYPE: %s\n", req_tokens);
-    int isGet = strcmp(req_tokens, "GET") == 0;
     
-    //next token (requested page) copy to another string
+    //close if not GET request
+    if (strcmp(req_tokens, "GET") != 0){
+    	printf("Expected GET, received: %s\n", req_tokens);
+    	//write_error(client_sockfd, 400);
+    	return;
+    }
+
+    //store next token (PATH), redirect to index.html if root dir
     req_tokens = strtok(NULL, " ");
-    char *requestedPage = malloc(strlen(req_tokens) + 1);
-    strcpy(requestedPage + 1, req_tokens);
-    requestedPage[0] = '.';
-    printf("PAGE REQUESTED: %s\n", requestedPage);
+    char req_path[256] = ".";
+    if (strcmp(req_tokens, "/") == 0) strcpy(req_path + 1, "/index.html");
+    else strcpy(req_path + 1, req_tokens);
 
+    //clear weird characters
+    fflush(stdout);
+    printf("PAGE REQUESTED: %s\n", req_path);
+    
+	struct stat sb;
+	if (stat(req_path, &sb) < 0) {
+		perror("checkPath: stat()");
+		strcpy(req_path + 1, "/404.html");
+		//write_error(client_sockfd, 404);
+		//return;
+		}
 
+	switch (sb.st_mode & S_IFMT) {
+		case S_IFDIR:
+			write_dir(client_sockfd, req_path);
+			break;
+		case S_IFREG:
+			write_file(client_sockfd, req_path, (int) sb.st_size);
+			break;
+		default:
+			printf("INVALID: %s\n", req_path);
+			break;
+	}
+
+	return;
+	/*
     //create file descriptor (default: no page specified, return index.html)
     int isIndex;
-    if (strcmp(requestedPage, "./") == 0) {
+    if (strcmp(req_path, "./") == 0) {
         req_fd = open("./index.html", O_RDONLY);
         isIndex = 1;
     }
     else {
-        req_fd = open(requestedPage, O_RDONLY);
+        req_fd = open(req_path, O_RDONLY);
         isIndex = 0;
     }
 
@@ -140,65 +165,83 @@ void client_request(int client_sockfd){
 
     //for directory, generate directory listing
     if (S_ISDIR(sb.st_mode) && !isIndex) {
-	write_dir_list(client_sockfd, req_fd, requestedPage);
+		write_dir(client_sockfd, req_fd, req_path);
         close(req_fd); //close file
         return;
     }
     //otherwise assume file
-    else if (isGet) {
-        //write content length string (this may not be necessary?)
-        char filesizestr[32];
-        sprintf(filesizestr, "%d", (int) sb.st_size);
-        write(client_sockfd, "Content-length: ", 16);
-        write(client_sockfd, filesizestr, strlen(filesizestr));
-        write(client_sockfd, "\n", 1);
-
-        //get file extension for page request
-        char *ext;
-        if ((ext = strrchr(requestedPage, '.')) > 0) printf("PAGE EXTENSION: %s\n", ext);
-        //examine extension and write file type
-        if (strcmp(ext, ".html") == 0 || isIndex || is404) write(client_sockfd, "Content-Type: text/html\n\n", 25);
-        else if (strcmp(ext, ".jpg") == 0 || strcmp(ext, ".jpeg") == 0) write(client_sockfd, "Content-Type: image/jpeg\n\n", 26);
-        else if (strcmp(ext, ".gif") == 0) write(client_sockfd, "Content-Type: image/gif\n\n", 25);
-        else write(client_sockfd, "Content-Type: text/plain\n\n", 26);
-
-        //attempt to send file to client socket
-        if (sendfile(client_sockfd, req_fd, 0, sb.st_size) < 0) {
-            printf("Server file send error\nclientfd: %d\tfilename: %s\tfilefd: %d\tfilesize: %d\n", client_sockfd, requestedPage, req_fd, (int) sb.st_size);
-            perror("sendfile");
-        }
-    }
-
-    close(req_fd); //close file
+    */
     return;
+}
+
+void write_file(int client_sockfd, char *req_path, int filesize){
+	int req_fd; //file descriptor for requested page
+	printf("RETRIEVING FILE FOR:%s\tSIZE: %d\n", req_path, filesize);
+	
+	req_fd = open(req_path, O_RDONLY);
+	write(client_sockfd, "HTTP/1.1 200 OK\n", 16);
+
+	//content length string
+    char filesizestr[32];
+    sprintf(filesizestr, "%d", filesize);
+    write(client_sockfd, "Content-length: ", 16);
+    write(client_sockfd, filesizestr, strlen(filesizestr));
+    write(client_sockfd, "\n", 1);
+	
+    //get file extension for page request
+    char *ext;
+    if ((ext = strrchr(req_path, '.')) > 0) printf("PAGE EXTENSION: %s\n", ext);
+    //examine extension and write file type
+    if (strcmp(ext, ".html") == 0) write(client_sockfd, "Content-Type: text/html\n\n", 25);
+    else if (strcmp(ext, ".jpg") == 0 || strcmp(ext, ".jpeg") == 0) write(client_sockfd, "Content-Type: image/jpeg\n\n", 26);
+    else if (strcmp(ext, ".gif") == 0) write(client_sockfd, "Content-Type: image/gif\n\n", 25);
+    else write(client_sockfd, "Content-Type: text/plain\n\n", 26);
+
+    //attempt to send file to client socket
+    if (sendfile(client_sockfd, req_fd, 0, filesize) < 0) {
+        printf("Server file send error\nclientfd: %d\tfilename: %s\tfilefd: %d\tfilesize: %d\n", client_sockfd, req_path, req_fd, filesize);
+        perror("sendfile");
+    }
+    close(req_fd); //close file
+	return;
 }
 
 //generate a directory listing for when a user navigates to directory
 //requires client socket id, requested directory file id, and specified path
-void write_dir_list(int client_sockfd, int req_fd, char *requestedPage){
+void write_dir(int client_sockfd, char *req_path){
 	DIR *d;
 	struct dirent *dir;
-	printf("GENERATING DIRECTORY LISTING FOR:%s\n", requestedPage);
+	printf("GENERATING DIRECTORY LISTING FOR:%s\n", req_path);
+
+	//append slash to directory path string if it doesnt already exist
+	if (req_path[strlen(req_path) - 1] != '/'){
+		strcat(req_path, "/");
+		printf("NEW DIR STRING: %s\n", req_path);
+	}
+	write(client_sockfd, "HTTP/1.1 200 OK\n", 16);
+
+	write(client_sockfd, "Content-length: 10000\n", 22);
 
 	write(client_sockfd, "Content-Type: text/html\n\n", 25);
 	write(client_sockfd, "<html>\n\t<head>\n\t\t<title>Index of ", 33);
-	write(client_sockfd, requestedPage + 1, strlen(requestedPage + 1));
+	write(client_sockfd, req_path + 1, strlen(req_path + 1));
 	write(client_sockfd, "</title>\n\t</head>\n\t<body>\n\t\t<h1>Index of ", 41);
-	write(client_sockfd, requestedPage + 1, strlen(requestedPage + 1));
+	write(client_sockfd, req_path + 1, strlen(req_path + 1));
 	write(client_sockfd, "</h1>\n\t\t<table>\n\t\t\t<tr><th colspan=\"5\"><hr></th></tr>", 53);
 
 	//write parent directory first
 	printf("Parent Directory\n");
 	write(client_sockfd, "\n\t\t\t<tr><td valign=\"top\"><img src=\"/icons/back.gif\" alt=\"[DIR]\"></td><td><a href=\"", 82);
 	//parent link here
-	write(client_sockfd, requestedPage + 1, strlen(requestedPage + 1));
+	write(client_sockfd, req_path + 1, strlen(req_path + 1));
 	//add extra slash only if its not already in url
-	if (requestedPage[strlen(requestedPage) - 1] != '/') write(client_sockfd, "/", 1);
+	//if (req_path[strlen(req_path) - 1] != '/') write(client_sockfd, "/", 1);
+	
 	write(client_sockfd, "..", 2);
 	write(client_sockfd, "\">Parent Directory</a></td><td>&nbsp;</td></tr>", 47);
 
 	//render files in directory to table
-	d = opendir(requestedPage);
+	d = opendir(req_path);
 	while ((dir = readdir (d)) != NULL) {
 		//skip cwd and parent
 		if ((strcmp(dir->d_name, ".") == 0) || (strcmp(dir->d_name, "..") == 0)) continue;
