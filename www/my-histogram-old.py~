@@ -1,0 +1,64 @@
+#!/usr/bin/env python
+import sys, os, re, subprocess, shutil
+from collections import Counter
+from subprocess import Popen,PIPE
+
+'''
+script for generating histogram
+error codes to stdout
+	
+	-2: file not found
+	-1: no args
+	0 : reserved (no output/tokens?)
+	1 : reserved (OK signal?)
+'''
+
+#my-histogram.py a3.html "and" "but" "so" "he.*lo" | gnuplot -p -e "plot '-'"
+
+
+#inspect arguments
+if len(sys.argv) < 3:
+	if len(sys.argv) < 2: exit('-1')
+	else: exit('0')
+#elif not os.path.exists(sys.argv[1]):
+#	exit('-2')
+try: fp = open(sys.argv[1], 'r')
+except: exit('-2')
+
+print('1')
+
+data = []
+i = 1
+#collect regex data
+for arg in sys.argv[2:]:
+	fp.seek(0)
+	count = len(re.findall(r'' + arg, fp.read()))
+	data += [(i, count, arg)]
+	i+=1
+fp.close()
+
+#pipe to gnuplot http://michelanders.blogspot.com/2011/01/talking-to-gnuplot-by-pipes.html
+gnuplot = r'/usr/bin/gnuplot'
+
+#data = [(x,x*x) for x in range(10)]
+#print(data)
+print("\n".join("%d %d %s" % d for d in data).encode())
+
+plot=Popen([gnuplot,'-persist'],stdin=PIPE,stdout=PIPE,stderr=PIPE)
+
+plot.stdin.write(b"set term png\n")
+plot.stdin.write(b"set title \"Word count in " + sys.argv[1] + "\"\n")
+plot.stdin.write(b"set boxwidth 0.5 absolute\n")
+plot.stdin.write(b"set style fill solid 1.0 noborder\n")
+plot.stdin.write(b"set style data histograms\n")
+plot.stdin.write(b"plot '-' with boxes\n")
+plot.stdin.write("\n".join("%d %d %s" % d for d in data).encode())
+plot.stdin.write(b"\ne\n")
+plot.stdin.flush()
+
+print(plot.stdout)
+print(plot.stdout.readline())
+fout = open("asdf.png", "w")
+shutil.copyfileobj(plot.stdout, fout)
+fout.close()
+

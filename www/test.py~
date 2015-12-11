@@ -1,0 +1,13 @@
+from subprocess import Popen,PIPE
+
+gnuplot = r'C:\gp45-winbin\gp45-winbin\gnuplot\binary\pgnuplot'
+
+data = [(x,x*x) for x in range(10)]
+
+plot=Popen([gnuplot,'-persist'],stdin=PIPE,stdout=PIPE,stderr=PIPE)
+
+plot.stdin.write(b"plot '-' with lines\n")
+plot.stdin.write("\n".join("%f %f"%d for d in data).encode())
+plot.stdin.write(b"\ne\n")
+plot.stdin.flush()
+

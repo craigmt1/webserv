@@ -115,6 +115,17 @@ void client_request(int client_sockfd){
     if (strcmp(req_tokens, "/") == 0) strcat(req_path, "/index.html");
     else strcat(req_path + 1, req_tokens);
     
+    //check path url for cgi arguments, separate them for stat
+    char *path_token;
+    char cgi_args[256] = "";
+    if (path_token = strrchr(req_path, '?')) {
+        //copy query to different string
+        strcpy(cgi_args, path_token);
+        //remove query from path string (add null terminator at '?')
+	req_path[(int)(path_token - req_path)] = '\0';
+    }
+    printf("QUERY STRING:%s\n", cgi_args);
+
 	struct stat sb;
 	if (stat(req_path, &sb) < 0) perror("checkPath: stat()");
 
