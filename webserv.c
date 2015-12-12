@@ -32,7 +32,7 @@ static const int req_buf_size = 1024; //client request buffer size
 void client_request(int client_sockfd);
 void write_file(int client_sockfd, char *req_path, int filesize);
 void write_dir(int client_sockfd, char *req_path);
-void write_cgi(int client_sockfd, char *req_path);
+void write_cgi(int client_sockfd, char *req_path, char *cgi_args);
 void write_error(int client_sockfd, int error_code);
 void exithandler();
 
@@ -122,7 +122,10 @@ void client_request(int client_sockfd){
         //copy query to different string
         strcpy(cgi_args, path_token);
         //remove query from path string (add null terminator at '?')
-	req_path[(int)(path_token - req_path)] = '\0';
+		req_path[(int)(path_token - req_path)] = '\0';
+		write(client_sockfd, "HTTP/1.1 200 OK\n", 16);
+		write_cgi(client_sockfd, req_path, cgi_args);
+		return;		
     }
     printf("QUERY STRING:%s\n", cgi_args);
 
@@ -160,16 +163,24 @@ void write_error(int client_sockfd, int error_code){
     return;
 }
 
-void write_cgi(int client_sockfd, char *req_path){
+void write_cgi(int client_sockfd, char *req_path, char *cgi_args){
 	FILE *f;
 
-	printf("EXECUTING CGI SCRIPT: %s\n", req_path);
+	if (strlen(cgi_args) > 1) {
+		req_path[strlen(req_path) + 1] = '\0';
+		req_path[strlen(req_path)] = ' ';
+		strcat(req_path, cgi_args);
+	}
+	printf("EXECUTING CGI SCRIPT: %s", req_path);
+
+
 	if ((f = popen(req_path, "r")) < 0){
 		perror("cgi:popen()");
+		void write_error(int client_sockfd, int error_code);
 		return;
 	}
 	//write(client_sockfd, "Content-length: 4096\n", 21);
-	//write(client_sockfd, "Connection: close\n", 18);
+	write(client_sockfd, "Connection: close\n", 18);
 	//write(client_sockfd, "Content-Type: text/plain\n", 25);
 	//write(client_sockfd, "\nContent-Type: text/html\n\n", 26);
 	//write(client_sockfd, "HELLO\n", 6);
@@ -213,7 +224,7 @@ void write_file(int client_sockfd, char *req_path, int filesize){
 
 	//redirect to write_cgi if cgi file
 	if (strcmp(ext, ".cgi") == 0) {
-		write_cgi(client_sockfd, req_path);
+		write_cgi(client_sockfd, req_path, "");
 		return;
 	}
 
@@ -310,68 +321,3 @@ void exithandler(){
     else printf(" Success!\n");
     exit(0);
 }
-
-
-/*
-//generate a directory listing for when a user navigates to directory
-//requires client socket id, requested directory file id, and specified path
-void write_dir(int client_sockfd, char *req_path){
-	DIR *d;
-	struct dirent *dir;
-	printf("GENERATING DIRECTORY LISTING FOR:%s\n", req_path);
-
-	//append slash to directory path string if it doesnt already exist
-	if (req_path[strlen(req_path) - 1] != '/'){
-		strcat(req_path, "/");
-		printf("NEW DIR STRING: %s\n", req_path);
-	}
-	write(client_sockfd, "HTTP/1.1 200 OK\n", 16);
-
-	//write(client_sockfd, "Content-length: 10000\n", 22);
-	write(client_sockfd, "Connection: close\n", 18);
-
-	write(client_sockfd, "Content-Type: text/html\n\n", 25);
-	write(client_sockfd, "<html>\n\t<head>\n\t\t<title>Index of ", 33);
-	write(client_sockfd, req_path + 1, strlen(req_path + 1));
-	write(client_sockfd, "</title>\n\t</head>\n\t<body>\n\t\t<h1>Index of ", 41);
-	write(client_sockfd, req_path + 1, strlen(req_path + 1));
-	write(client_sockfd, "</h1>\n\t\t<table>\n\t\t\t<tr><th colspan=\"5\"><hr></th></tr>", 53);
-
-	//write parent directory first
-	printf("Parent Directory\n");
-	write(client_sockfd, "\n\t\t\t<tr><td valign=\"top\"><img src=\"/icons/back.gif\" alt=\"[DIR]\"></td><td><a href=\"", 82);
-	//parent link here
-	write(client_sockfd, req_path + 1, strlen(req_path + 1));
-	//add extra slash only if its not already in url
-	//if (req_path[strlen(req_path) - 1] != '/') write(client_sockfd, "/", 1);
-	
-	write(client_sockfd, "..", 2);
-	write(client_sockfd, "\">Parent Directory</a></td><td>&nbsp;</td></tr>", 47);
-
-	//render files in directory to table
-	d = opendir(req_path);
-	while ((dir = readdir (d)) != NULL) {
-		//skip cwd and parent
-		if ((strcmp(dir->d_name, ".") == 0) || (strcmp(dir->d_name, "..") == 0)) continue;
-		
-		//render listing for other files/directories
-		printf("File: %s\n", dir->d_name);
-		write(client_sockfd, "\n\t\t\t<tr><td valign=\"top\"><img src=\"/icons/", 42);
-
-		//choose icon for directory or file
-		if (dir->d_type == DT_DIR) write(client_sockfd, "folder.gif\" alt=\"[DIR]", 23);
-		else write(client_sockfd, "text.gif\" alt=\"[TXT]", 21);
-
-		write(client_sockfd, "\"></td><td><a href=\"", 20);
-		write(client_sockfd, req_path + 1, strlen(req_path + 1));
-		write(client_sockfd, dir->d_name, strlen(dir->d_name));
-		write(client_sockfd, "\">", 2);
-		write(client_sockfd, dir->d_name, strlen(dir->d_name));
-		write(client_sockfd, "</a></td><td>&nbsp;</td></tr>", 29);
-	}
-
-	closedir(d);
-	write(client_sockfd, "\n\t\t\t<tr><th colspan=\"5\"><hr></th></tr>\n\t\t</table>\n\t\t<address>Custom CS410 Webserver</address>\n\t</body>\n</html>", 110);
-	return;
-}
-*/

@@ -2,8 +2,7 @@
 import sys, re, commands, glob
 from subprocess import call
 
-#arg example: ./display-histogram.cgi "?name1=a3.html&name2=and&name3=but&name4=so&name5=hello"
-#generates  : ./my-histogram.cgi a3.html "and" "but" "so" "he.*lo" | gnuplot -p -e "set term png; set style fill solid 1.0 noborder; set boxwidth 0.5 absolute; plot '-' using 1:2:xtic(3) with boxes title \"Occurences\"" | base64
+#arg example: ./binduino.cgi ?110011011
 
 #inspect arguments
 #if len(sys.argv) != 2:
@@ -12,6 +11,7 @@ from subprocess import call
 #tokenize url arguments
 #tokens = re.split("\&* *\w*\=", sys.argv[1])
 
+print "Content-type: text/plain"
 
 #parse arguments
 try:
