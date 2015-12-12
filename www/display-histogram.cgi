@@ -26,21 +26,24 @@ cmd += " | gnuplot -p -e \"set term png; set style fill solid 1.0 noborder; set 
 cmdout = commands.getoutput(cmd)
 
 #build html string
-page = "<!DOCTYPE html>\
-	\n<html>\
-	\n\t<body>\
-	\n\t\t<center>\
-	\n\t\t\t<font size=\"3\" color=\"red\">\
-	\n\t\t\t\t<p>CS410 Webserver</p>\
-	\n\t\t\t</font>\
-	\n\t\t\t<br></br>"
+page = \
+r"""<!DOCTYPE html>
+	<html>
+		<body>
+			<center>
+				<font size="3" color="red">
+					<p>CS410 Webserver</p>
+				</font>
+			<br></br>
+	"""
 
 if len(cmdout) > 1000:
 	page += "\n\t\t\t<img src=\"data:image/png;base64," + cmdout + "\" alt=\"histogram\">";
 
-page += "\n\t\t</center>\
-	\n\t</body>\
-	\n</html>";
+page += \
+r"""		</center>
+	</body>
+</html>"""
 
 #print str(len(page)) + " Bytes"
 print "Content-type: text/html"
