@@ -13,10 +13,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 
-//http://blog.manula.org/2011/05/writing-simple-web-server-in-c.html
-//http://shoe.bocks.com/net/
-//http://www.tldp.org/LDP/LGNET/91/misc/tranter/server.c.txt
-//http://stackoverflow.com/questions/10072989/simple-http-server-in-c-multiple-process-not-work-properly
+#include "filecache.h"
 
 struct sockaddr_in addr; //server socket address structure
 socklen_t addrlen; //address structure size
@@ -29,24 +26,36 @@ static size_t serv_sock_size; //size of server socket file descriptor
 static int port_no; //port number for webserv
 static const int req_buf_size = 1024; //client request buffer size
 
-void client_request(int client_sockfd);
-void write_file(int client_sockfd, char *req_path, int filesize);
-void write_dir(int client_sockfd, char *req_path);
-void write_cgi(int client_sockfd, char *req_path, char *cgi_args);
-void write_error(int client_sockfd, int error_code);
-void exithandler();
+struct webCache *wc;
+int cacheOn = 1;
+long cacheSize = 4096; //default cache size
 
 int main(int argc, char **argv){
     //check arguments
-    if (argc < 2 || argc > 2) {
+    if (argc < 2 || argc > 3) {
         printf("Must specify port number as argument!\n");
         exit(0);
     }
+
     //cast port number to integer and check if valid
     port_no = atoi(argv[1]); //get port# from argv
     if (port_no < 5000 || port_no > 65536) {
     	printf("Invalid port number, must be integer between 5000 and 65536\n");
     	exit(0);
+    }
+
+    //check if cache flag
+    if (argc == 3){
+	if (strcmp("--nocache", argv[2]) == 0){
+            printf("Cache Disabled\n");
+            cacheOn = 0;
+        } else {
+            cacheSize = atoi(argv[2]);
+            if (cacheSize < 4096 || cacheSize > 2097152) {
+                printf("Invalid cache size specified, must be integer between 4096 and 2097152 (or --nocache to disable).\n");
+                exit(0);
+            }
+        }
     }
 
     //create server socket http://linux.die.net/man/7/socket
@@ -59,6 +68,13 @@ int main(int argc, char **argv){
         perror("Failed to bind socket");
         exit(EXIT_FAILURE);
     }
+
+    //create cache
+    if (cacheOn == 1){
+	printf("Creating cache (%u bytes).\n", cacheSize);
+        wc = create(cacheSize);
+    }
+
     //listen for exit signal (ctrl-c)
     signal(SIGINT, exithandler);
     signal(SIGQUIT, exithandler);
@@ -246,8 +262,12 @@ void write_file(int client_sockfd, char *req_path, int filesize){
     else if (strcmp(ext, ".gif") == 0) write(client_sockfd, "Content-Type: image/gif\n\n", 25);
     else write(client_sockfd, "Content-Type: text/plain\n\n", 26);
 
-    //attempt to send file to client socket
-    if (sendfile(client_sockfd, req_fd, 0, filesize) < 0) {
+    //attempt to send file to client socket (attempt cache if available
+    if (cacheOn) {
+        cache(wc, req_path);
+        write(client_sockfd, wc->head->data, wc->head->fsize);
+    }
+    else if (sendfile(client_sockfd, req_fd, 0, filesize) < 0) {
         printf("Server file send error\nclientfd: %d\tfilename: %s\tfilefd: %d\tfilesize: %d\n", client_sockfd, req_path, req_fd, filesize);
         perror("sendfile");
     }
@@ -315,6 +335,10 @@ void write_dir(int client_sockfd, char *req_path){
 void exithandler(){
     //gracefully close socket file descriptor
     printf("\nClosing socket %d on port %d...", serv_sockfd, port_no);
+    if (cacheOn){
+        printWebCache(wc);
+        //clearWebCache(wc);
+    }
     if (close(serv_sockfd) < 0){
         printf(" Failure!\n");
     }

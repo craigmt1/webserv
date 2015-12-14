@@ -1,19 +1,9 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include "filecache.h"
 
-struct cacheFile{
-	char name[128];
-	char *data;
-	long fsize;
-	struct cacheFile *next;
-	struct cacheFile *prev;
-};
-
-void printCache(struct cacheFile *webcache){
-	printf("Name: %s\tSize: %d bytes.\n", webcache->name, webcache->fsize);
-	if (webcache->next != NULL) printCache(webcache->next);
-}
-
+//generate cache file from filename
 struct cacheFile *readFile(char *filename){
 	struct cacheFile *f1 = (struct cacheFile *) malloc(sizeof(struct cacheFile));
 
@@ -32,97 +22,135 @@ struct cacheFile *readFile(char *filename){
 	return f1;
 }
 
-struct cacheFile *push(struct cacheFile *webcache, struct cacheFile *newfile){
-	//not in cache
-	if (inCache(webcache, newfile->name) == 0){
-		newfile->next = webcache;
-		webcache->prev = newfile;
-		trimCache(newfile, 100);
-		return newfile;
-	}
+//initialize web cache
+struct webCache *create(long maxSize){
+	struct webCache *wc = (struct webCache *) malloc(sizeof(struct webCache));
+	wc->maxSize = maxSize;
+	wc->size = 0;
+	return wc;
 }
 
-int inCache(struct cacheFile *webcache, char * filename){
-	if (strcmp(webcache->name, filename) == 0) return 1;
+//empty cache starting at given file in cache (start at head to clear all)
+void clear(struct cacheFile *fc){
+	if (fc->next != NULL) clear(fc->next);
+	fc->fsize = 0;
+	fc->next = NULL;
+	fc->prev = NULL;
+	
+	free(fc->data);
+	free(fc);
+	fc = NULL;
+}
+void clearWebCache(struct webCache *wc){
+	clear(wc->head);
+	wc->size = 0;
+	wc->head = NULL;
+	wc->tail = NULL;
+}
+
+//checks if item is in cache, returns item if true
+struct cacheFile *inCache(struct cacheFile *fc, char * filename){
+	if (strcmp(fc->name, filename) == 0) return fc;
 	else {
-		if (webcache->next == NULL) return 0;
-		else return inCache(webcache->next, filename);
+		if (fc->next == NULL) return NULL;
+		else return inCache(fc->next, filename);
 	}
 }
 
-int cacheSize(struct cacheFile *webcache){
-	if (webcache->next == NULL) return 1;
-	else return 1 + cacheSize(webcache->next);
-}
+//caches or returns existing file to web cache
+struct cacheFile *cache(struct webCache *wc, char *filename){
+	struct cacheFile *cf;
 
-//finds cache file with given name, and pushes it back to front
-//returns 1 to signal that there is new front
-int writeCacheFile(struct cacheFile *front, struct cacheFile *webcache, char * filename){
-	//if first print and do nothing
-	if (strcmp(webcache->name, filename) == 0){
-		printf("%s\n", webcache->data);
-		if (webcache->prev == NULL) {
-			return 0;
+	//if first item
+	if (wc->head == NULL){
+		cf = readFile(filename);
+		if (cf->fsize > wc->maxSize){
+			free(cf);
+			return NULL;
 		}
-		else {
-			if (webcache->next){
-				webcache->prev->next = webcache->next;
-				webcache->next->prev = webcache->prev;
-			} else webcache->prev->next = NULL;
-			webcache->prev = NULL;
-			webcache->next = front;
-			front->prev = webcache;
-			return 1;
+		wc->head = cf;
+		wc->tail = cf;
+		wc->size = cf->fsize;
+		return wc->head;
+	}
+
+	//else if not yet in cache, make head and trim cache
+	cf = inCache(wc->head, filename);
+	if(cf == NULL){
+		cf = readFile(filename);
+		if (cf->fsize > wc->maxSize){
+			free(cf);
+			return NULL;
 		}
+		cf->next = wc->head;
+		wc->head->prev = cf;
+		wc->head = cf;
+		wc->size = wc->size + cf->fsize;
+		//remove tail items until under size limit
+	} else {
+		//exit if already at head
+		if (cf->prev == NULL) return;
+		//move tail to prev if at tail
+		if (cf->next == NULL){
+			wc->tail = cf->prev;
+			wc->tail->next = NULL;
+		//if between two items, connect them to each other
+		} else {
+			cf->next->prev = cf->prev;
+			cf->prev->next = cf->next;
+		}
+		//move to head
+		wc->head->prev = cf;
+		cf->next = wc->head;
+		cf->prev = NULL;
+		wc->head = cf;
 	}
-	else {
-		if (webcache->next == NULL) return 0;
-		else return writeCacheFile(front, webcache->next, filename);
+	//trim cache if over limit
+	while (wc->size > wc->maxSize){
+		wc->size = wc->size - wc->tail->fsize;
+		wc->tail = wc->tail->prev;
+		clear(wc->tail->next);
+		wc->tail->next = NULL;
 	}
+	return wc->head;
 }
 
-//keep cache below certain length, free items at end that go beyond it
-int trimCache(struct cacheFile *webcache, int max){
-	if (max == 0){
-		webcache->prev->next = NULL;
-		free(webcache->data);
-		free(webcache);
-		return 1;
-	}
-	else if (webcache->next == NULL){
-		return 0;
-	}
-	else{
-		return trimCache(webcache->next, max - 1);
-	}
+//recursively print file info for files in cache
+void printCache(struct cacheFile *fc){
+	printf("Size: %d\tName: %s\t", fc->fsize, fc->name);
+	if (fc->prev != NULL){
+		printf("Prev: %s\t", fc->prev->name);
+	} else printf("Prev: NULL\t");
+
+	if (fc->next != NULL){
+		printf("Next: %s\n", fc->next->name);
+		printCache(fc->next);
+	} else printf("Next: NULL\n");
+}
+//print cache info (and perform recursive file print)
+void printWebCache(struct webCache *wc){
+	printf("Memory usage: (%u/%u)\n", wc->size, wc->maxSize);
+	if (wc->head != NULL) printCache(wc->head);
 }
 
+/*
 int main(){
-	struct cacheFile *webcache;
+	struct webCache *wc;
+	wc = create(12000);
+	cache(wc, "notes.txt");
+	cache(wc, "bonusideas.txt");
+	cache(wc, "www/request.cgi");
+	cache(wc, "www/other.html");
+	cache(wc, "www/test.html");
+	cache(wc, "www/dir.html");
+	cache(wc, "www/test.cgi");
+	cache(wc, "www/favicon.ico");
+	cache(wc, "www/binduino.cgi");
+	cache(wc, "www/display-histogram.cgi");
+	cache(wc, "notes.txt");
 
-	//if nothing in cache yet
-	if (webcache == NULL) webcache = readFile("notes.txt");
-
-	webcache = push(webcache, readFile("bonusideas.txt"));
-
-	printCache(webcache);
-	printf("Size of Cache: %d\n", cacheSize(webcache));
-	printf("%s in Cache? %d\n", "notes.txt", inCache(webcache, "notes.txt"));
-	printf("%s in Cache? %d\n", "lol", inCache(webcache, "lol"));
-
-	if (writeCacheFile(webcache, webcache, "webserv.c")){
-		webcache = webcache->prev;
-	} else{
-		//push cache file then write it
-		webcache = push(webcache, readFile("webserv.c"));
-		writeCacheFile(webcache, webcache, "webserv.c");
-	}
-
-
-	printf("Size of Cache: %d\n", cacheSize(webcache));
-	printCache(webcache);
-
-	free(webcache->data);
-	free(webcache);
+	printWebCache(wc);
+	clearWebCache(wc);
 	return 0;
 }
+*/
