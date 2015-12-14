@@ -13,6 +13,8 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 
+#include <sys/ipc.h>
+#include <sys/shm.h>
 #include "filecache.h"
 
 struct sockaddr_in addr; //server socket address structure
@@ -29,6 +31,7 @@ static const int req_buf_size = 1024; //client request buffer size
 struct webCache *wc;
 int cacheOn = 1;
 long cacheSize = 4096; //default cache size
+int shmid;
 
 int main(int argc, char **argv){
     //check arguments
@@ -53,7 +56,7 @@ int main(int argc, char **argv){
             cacheSize = atoi(argv[2]);
             if (cacheSize < 4096 || cacheSize > 2097152) {
                 printf("Invalid cache size specified, must be integer between 4096 and 2097152 (or --nocache to disable).\n");
-                exit(0);
+                exit(EXIT_FAILURE);
             }
         }
     }
@@ -73,6 +76,7 @@ int main(int argc, char **argv){
     if (cacheOn == 1){
 	printf("Creating cache (%u bytes).\n", cacheSize);
         wc = create(cacheSize);
+	shmid = shmget(2009, cacheSize, 0666 | IPC_CREAT);
     }
 
     //listen for exit signal (ctrl-c)
@@ -97,7 +101,7 @@ int main(int argc, char **argv){
 		    //fork each client request
 		    if (fork() == 0){
 				client_request(client_sockfd);
-				exit(0);
+				exit(EXIT_SUCCESS);
 				close(client_sockfd);
 		    }
         }
@@ -263,8 +267,11 @@ void write_file(int client_sockfd, char *req_path, int filesize){
     else write(client_sockfd, "Content-Type: text/plain\n\n", 26);
 
     //attempt to send file to client socket (attempt cache if available
-    if (cacheOn) {
-        cache(wc, req_path);
+    if (cacheOn == 1) {
+        shmid = shmget(2009, cacheSize, 0);
+	wc = shmat(shmid, 0, 0);
+        printf("ACCESSING CACHE FOR %s\n", req_path + 2);
+        cache(wc, req_path + 2);
         write(client_sockfd, wc->head->data, wc->head->fsize);
     }
     else if (sendfile(client_sockfd, req_fd, 0, filesize) < 0) {
@@ -335,13 +342,15 @@ void write_dir(int client_sockfd, char *req_path){
 void exithandler(){
     //gracefully close socket file descriptor
     printf("\nClosing socket %d on port %d...", serv_sockfd, port_no);
-    if (cacheOn){
-        printWebCache(wc);
-        //clearWebCache(wc);
-    }
     if (close(serv_sockfd) < 0){
         printf(" Failure!\n");
     }
     else printf(" Success!\n");
+
+    if (cacheOn){
+        printWebCache(wc);
+        clearWebCache(wc);
+    }
+
     exit(0);
 }

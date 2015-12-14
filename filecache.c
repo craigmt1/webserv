@@ -42,6 +42,7 @@ void clear(struct cacheFile *fc){
 	fc = NULL;
 }
 void clearWebCache(struct webCache *wc){
+	if (wc->head == NULL) return;
 	clear(wc->head);
 	wc->size = 0;
 	wc->head = NULL;
