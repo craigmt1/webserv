@@ -29,7 +29,7 @@ static int port_no; //port number for webserv
 static const int req_buf_size = 1024; //client request buffer size
 
 struct webCache *wc;
-int cacheOn = 1;
+int cacheOn = 0;
 long cacheSize = 4096; //default cache size
 int shmid;
 
